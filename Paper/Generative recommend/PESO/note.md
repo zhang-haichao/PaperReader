@@ -119,9 +119,9 @@ Goal:
 
 论文将第 `t` 个阶段的数据写成：
 
-$$
+```math
 D_t = \{(x_u, y_u): u \in U_t\}
-$$
+```
 
 其中：
 
@@ -142,21 +142,25 @@ $$
 
 目标 item 由多个 semantic ID token 组成：
 
-$$
+```math
 y = (y_1, y_2, ..., y_M)
-$$
+```
 
 LLM 自回归生成：
 
-$$
-p_\theta(y|x) = \prod_{m=1}^{M} p_\theta(y_m | x, y_{<m})
-$$
+```math
+p_\theta(y \mid x)
+= \prod_{m=1}^{M} p_\theta(y_m \mid x, y_{<m})
+```
 
 训练损失是交叉熵：
 
-$$
-L^{D_t}_{ce} = \mathbb{E}_{(x,y)\sim D_t}[-\log p_\theta(y|x)]
-$$
+```math
+L_{\mathrm{ce}}^{D_t}
+=
+\mathbb{E}_{(x,y)\sim D_t}
+\left[-\log p_\theta(y \mid x)\right]
+```
 
 含义：
 
@@ -168,13 +172,13 @@ $$
 
 LoRA 冻结原始大模型参数，只训练低秩增量：
 
-$$
+```math
 W = W_0 + \Delta W
-$$
+```
 
-$$
+```math
 \Delta W = BA
-$$
+```
 
 其中：
 
@@ -197,9 +201,9 @@ Single Evolving LoRA 是最直接的方法。
 
 每个阶段只维护一个 LoRA：
 
-$$
+```math
 W_t = W_0 + B_t A_t
-$$
+```
 
 第 `t` 阶段的 LoRA 从上一阶段初始化：
 
@@ -232,9 +236,13 @@ Cumulative LoRA 是视觉 continual learning 中常见的方法。
 
 它保存过去每个阶段的 frozen adapter，并在当前阶段再训练一个新 adapter：
 
-$$
-W_t = W_0 + \sum_{i=1}^{t-1} \alpha_i \hat{B}_i \hat{A}_i + B_t A_t
-$$
+```math
+W_t
+=
+W_0
++ \sum_{i=1}^{t-1} \alpha_i \hat{B}_i \hat{A}_i
++ B_t A_t
+```
 
 其中：
 
@@ -664,10 +672,18 @@ g = 某一层某个 LoRA A 或 LoRA B 的参数组
 
 PESO 的通用目标函数：
 
-$$
-L_t = L^{D_t}_{ce} + \frac{\lambda}{2}\sum_{g=1}^{G}
-\|v_t^{(g)} - v_{t-1}^{(g)}\|^2_{H^{(g)}_{t-1}}
-$$
+```math
+\begin{aligned}
+L_t
+&=
+L_{\mathrm{ce}}^{D_t}
++ \frac{\lambda}{2}
+\sum_{g=1}^{G}
+\left\lVert
+v_t^{(g)} - v_{t-1}^{(g)}
+\right\rVert^2_{H_{t-1}^{(g)}} .
+\end{aligned}
+```
 
 其中：
 
@@ -689,9 +705,14 @@ $$
 
 论文将当前阶段数据损失近似为二次形式：
 
-$$
-L_{D_t}(v) \approx \frac{1}{2}(v-v_t^*)^\top \Sigma_t (v-v_t^*)
-$$
+```math
+L_{D_t}(v)
+\approx
+\frac{1}{2}
+\left(v - v_t^{\star}\right)^\top
+\Sigma_t
+\left(v - v_t^{\star}\right).
+```
 
 其中：
 
@@ -701,15 +722,17 @@ $$
 
 加入 proximal regularizer 后，在某个方向 `q_k` 上，最优解近似是：
 
-$$
-\langle \hat{v}_t, q_k \rangle
-=
+```math
+\begin{aligned}
+\left\langle \hat{v}_t, q_k \right\rangle
+&=
 \frac{\sigma_k^2}{\sigma_k^2+\lambda}
-\langle v_t^*, q_k \rangle
+\left\langle v_t^{\star}, q_k \right\rangle
 +
 \frac{\lambda}{\sigma_k^2+\lambda}
-\langle v_{t-1}, q_k \rangle
-$$
+\left\langle v_{t-1}, q_k \right\rangle .
+\end{aligned}
+```
 
 这是理解 PESO 最重要的公式。
 
@@ -775,15 +798,19 @@ data-aware, direction-wise guidance
 
 目标函数：
 
-$$
-L_t = L^{D_t}_{ce}
+```math
+\begin{aligned}
+L_t
+&=
+L_{\mathrm{ce}}^{D_t}
 + \lambda \sum_{g=1}^{G}
-D_{KL}(
-\text{softmax}(v_t^{(g)})
-\|
-\text{softmax}(v_{t-1}^{(g)})
-)
-$$
+D_{\mathrm{KL}}\!\left(
+\operatorname{softmax}\!\left(v_t^{(g)}\right)
+\,\middle\Vert\,
+\operatorname{softmax}\!\left(v_{t-1}^{(g)}\right)
+\right).
+\end{aligned}
+```
 
 含义：
 
@@ -822,15 +849,18 @@ softmax-KL：
 
 论文证明 softmax-KL 在局部等价于二次正则：
 
-$$
-H = \text{diag}(p) - pp^\top
-$$
+```math
+H = \operatorname{diag}(p) - pp^\top
+```
 
 并且可以理解为：
 
-$$
-\text{weighted variance of parameter changes}
-$$
+```math
+K_{\mathrm{blk}}
+\propto
+\sum_g
+\operatorname{Var}_{p^{(g)}}\!\left(\Delta^{(g)}\right)
+```
 
 也就是说：
 
@@ -1288,11 +1318,14 @@ Table 1 要讲出三个结论：
 
 核心公式：
 
-$$
-L_t = L^{D_t}_{ce}
+```math
+L_t
+=
+L_{\mathrm{ce}}^{D_t}
 + \frac{\lambda}{2}
-\sum_g \|v_t^{(g)} - v_{t-1}^{(g)}\|^2_H
-$$
+\sum_g
+\left\lVert v_t^{(g)} - v_{t-1}^{(g)} \right\rVert_H^2
+```
 
 ---
 
@@ -1300,13 +1333,13 @@ $$
 
 最重要的是方向级插值公式：
 
-$$
+```math
 \hat{v}_t
 \approx
-\frac{\sigma^2}{\sigma^2+\lambda}v_t^*
+\frac{\sigma^2}{\sigma^2+\lambda}v_t^{\star}
 +
 \frac{\lambda}{\sigma^2+\lambda}v_{t-1}
-$$
+```
 
 用自然语言解释：
 
@@ -1382,4 +1415,3 @@ Figure 3 说明：
 实验：
   PESO 在主结果、用户分组和正则消融中都表现更好。
 ```
-
