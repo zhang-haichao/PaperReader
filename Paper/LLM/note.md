@@ -1,1000 +1,557 @@
-\# Function Vectors in Large Language Models 组会讲解稿
 
+## 1. 开场：这篇论文在问什么问题？
 
+大家好，我今天分享的论文是 **Function Vectors in Large Language Models**，发表于 ICLR 2024。
 
-\## 1. 这篇论文想解决什么问题？
+这篇论文关注的是大语言模型中的 **in-context learning**，也就是模型不更新参数，只通过 prompt 里的几个例子临时学会一个任务。
 
-
-
-这篇论文研究的是 \*\*大语言模型做 in-context learning 时，内部到底是怎么表示“当前任务”的\*\*。
-
-
-
-我们平时看到 LLM 可以通过几个例子临时学会一个任务，比如：
-
-
+比如我们给模型：
 
 ```text
-
 hot:cold, big:small, happy:sad, fast:
-
 ```
 
-
-
-模型会输出：
-
-
+模型可能会输出：
 
 ```text
-
 slow
-
 ```
-
-
 
 这里模型其实做了两件事：
 
+1. 先识别当前任务：这是一个“找反义词”的任务；
+2. 再执行任务：把 `fast` 映射成 `slow`。
 
+这篇论文真正关心的是第一步：
 
-1\. 先识别任务：这是“反义词任务”；
+> 模型内部有没有一个东西，表示“当前要执行什么任务”？
 
-2\. 再执行任务：把 `fast` 映射成 `slow`。
+作者的核心发现是：
+**有。大语言模型内部存在一种紧凑的任务向量，作者称为 Function Vector，简称 FV。**
 
-
-
-这篇论文关心的不是模型为什么知道 `fast` 的反义词，而是：
-
-
-
-> 模型内部有没有一个向量，表示“现在要执行反义词这个函数”？
-
-
-
-作者把这个向量叫做 \*\*Function Vector\*\*，简称 \*\*FV\*\*。
-
-
-
-可以把 FV 理解成模型内部的一个“任务开关”：
-
-
+可以把 FV 理解成模型内部的“任务开关”：
 
 ```text
-
 Antonym FV        → 打开反义词模式
-
 English-French FV → 打开英文转法文模式
-
 Capitalize FV     → 打开首字母大写模式
-
 ```
 
+它不是直接存答案，而是触发模型去执行某个函数。
 
+---
 
-也就是说，FV 不是直接存答案，而是触发模型执行某个任务。
+## 2. 图 1：Function Vector 的整体直觉
 
+我们先看论文的图 1。
 
+图 1 展示了整篇论文最核心的想法：
 
-\---
+> 从 ICL 示例中提取一个任务向量，再把这个向量插入到新的上下文中，模型就会执行同样的任务。
 
-
-
-\## 2. 结合图 1：Function Vector 的整体直觉
-
-
-
-论文图 1 给出了整篇文章最核心的直觉。
-
-
-
-图 1 的意思是：
-
-
-
-1\. 先给模型一些 ICL 示例，比如反义词任务或英文到西班牙文翻译任务；
-
-2\. 从模型内部激活中提取出一个向量；
-
-3\. 把这个向量插入到一个完全不同的新上下文里；
-
-4\. 模型就会倾向于执行原来的任务。
-
-
-
-比如从下面的反义词例子中提取 Antonym FV：
-
-
+比如，模型看到一组反义词示例：
 
 ```text
-
 arrive:depart, small:big, common:
-
 ```
 
+我们从模型内部激活中提取出一个 **Antonym FV**。
 
-
-然后把 Antonym FV 插入到：
-
-
+然后把这个 FV 插入到一个完全不同的自然语言上下文中：
 
 ```text
-
 The word "fast" means
-
 ```
-
-
 
 模型就可能输出：
 
-
-
 ```text
-
 slow
-
 ```
 
+这说明 FV 不是简单记住原来的 prompt 格式，而是更像一个抽象的任务表示。
 
+---
 
-这说明 FV 不是简单记住 prompt 格式，而是更像一个抽象的任务表示。
-
-
-
-\---
-
-
-
-\## 3. 结合图 2：最初的观察
-
-
+## 3. 图 2：最初的观察
 
 作者一开始做了一个很简单的实验。
 
-
-
 对于某个任务 $t$，比如反义词任务，收集很多 ICL prompt，然后记录模型在某一层最后一个 token 的 hidden state，并求平均：
 
-
-
 $$
-
-\\bar{h}\_{\\ell}^{t}
-
+\bar{h}_{\ell}^{t}
 $$
-
-
 
 然后把这个平均 hidden state 加到一个 zero-shot prompt 中。
 
-
-
-比如不给任何例子，只输入：
-
-
+比如不给任何示例，只输入：
 
 ```text
-
 simple:
-
 ```
-
-
 
 如果加入反义词任务的平均激活，模型有时会输出：
 
-
-
 ```text
-
 complex
-
 ```
 
+图 2 中红线表示直接加入平均 hidden state 的效果，绿色表示后面构造出的 Function Vector 的效果。
 
+图 2 的重点是：
 
-图 2 说明：
+> 模型的中间层 hidden state 里确实包含某种任务信息；而作者提出的 FV 比普通 hidden state 平均更有效。
 
+这个观察引出了全文的核心方法问题：
 
+> 能不能更精确地找到模型内部哪些组件在搬运任务信息？
 
-\* 红线表示加入普通平均 hidden state 的效果；
+---
 
-\* 绿色表示加入作者后面构造出的 Function Vector 的效果；
+## 4. Transformer 中作者分析什么？
 
-\* 绿色更强，说明 FV 是一种更干净、更有效的任务表示。
+作者重点分析的是 **attention heads**。
 
-
-
-这个观察引出全文核心问题：
-
-
-
-> 能不能找到模型内部真正负责传递任务信息的组件，然后从这些组件中提取更好的任务向量？
-
-
-
-\---
-
-
-
-\## 4. Transformer 中要分析什么？
-
-
-
-作者重点分析 attention heads。
-
-
-
-在 Transformer 中，第 $\\ell$ 层最后 token 的 hidden state 可以写成：
-
-
+在 Transformer 中，第 $\ell$ 层最后一个 token 的 hidden state 可以写成：
 
 $$
-
-h\_{\\ell}
-
+h_{\ell}
 ========
 
-
-
-h\_{\\ell-1}
-
-\+
-
-m\_{\\ell}
-
-\+
-
-\\sum\_{j \\leq J} a\_{\\ell j}
-
+h_{\ell-1}
++
+m_{\ell}
++
+\sum_{j=1}^{J} a_{\ell j}
 $$
-
-
 
 其中：
 
+* $h_{\ell}$ 是第 $\ell$ 层的 hidden state；
+* $m_{\ell}$ 是 MLP 输出；
+* $a_{\ell j}$ 是第 $\ell$ 层第 $j$ 个 attention head 的输出；
+* $J$ 是每层 attention heads 的数量。
 
+为什么重点看 attention heads？
 
-\* $h\_{\\ell}$：第 $\\ell$ 层 hidden state；
+因为 ICL 需要模型从前面的示例中读取输入输出关系，而 attention head 正是 Transformer 中负责在不同 token 之间传递信息的组件。
 
-\* $m\_{\\ell}$：MLP 输出；
+所以作者的问题可以具体化为：
 
-\* $a\_{\\ell j}$：第 $\\ell$ 层第 $j$ 个 attention head 的输出；
+> 哪些 attention heads 在 ICL 中真正负责传递“任务是什么”的信息？
 
-\* $J$：每层 attention head 的数量。
+---
 
+## 5. ICL Prompt 的形式
 
-
-作者关注 attention head，是因为 ICL 需要模型从前面的输入输出例子中搬运信息，而 attention head 正是负责不同 token 之间信息传递的组件。
-
-
-
-\---
-
-
-
-\## 5. ICL Prompt 的形式
-
-
-
-对于任务 $t$，一个正常 ICL prompt 写成：
-
-
+对于任务 $t$，一个正常 ICL prompt 可以写成：
 
 $$
+p_i^t
+=====
 
-p\_i^t =
-
-\[(x\_{i1}, y\_{i1}), \\cdots, (x\_{iN}, y\_{iN}), x\_{iq}]
-
+[(x_{i1}, y_{i1}), \cdots, (x_{iN}, y_{iN}), x_{iq}]
 $$
 
+其中：
 
-
-含义是：
-
-
-
-```text
-
-前面有 N 个输入-输出示例
-
-最后给一个 query input
-
-模型需要预测对应的 y\_iq
-
-```
-
-
+* $(x_{i1}, y_{i1}), \cdots, (x_{iN}, y_{iN})$ 是前面的输入输出示例；
+* $x_{iq}$ 是最后的 query input；
+* $y_{iq}$ 是模型应该预测的正确答案。
 
 比如反义词任务：
 
-
-
 ```text
-
 hot:cold, big:small, happy:sad, fast:
-
 ```
 
-
-
 这里：
 
+* 前面三对是示例；
+* `fast` 是 query；
+* 正确答案是 `slow`。
 
+---
 
-\* $x$ 是输入词；
+## 6. 方法核心：Activation Patching
 
-\* $y$ 是输出词；
+作者使用的是 **causal mediation analysis**，具体实现是 **activation patching**。
 
-\* 最后的 $x\_{iq}$ 是 `fast`；
+这部分是论文方法的核心。
 
-\* 正确答案 $y\_{iq}$ 是 `slow`。
+它的目标不是看相关性，而是直接做因果干预：
 
+> 如果我们替换某个 attention head 的激活，模型正确答案概率上升了，那这个 head 就很可能真的携带任务信息。
 
+整个过程可以分成四步。
 
-\---
+---
 
+## 7. 第一步：计算每个 head 的任务平均激活
 
-
-\## 6. 方法核心：如何找到携带任务信息的 attention heads？
-
-
-
-作者使用的是 \*\*causal mediation analysis\*\*，具体实现是 \*\*activation patching\*\*。
-
-
-
-目标是找到：
-
-
-
-> 哪些 attention heads 对模型正确执行 ICL 任务有因果作用？
-
-
-
-注意，这里不是看相关性，而是直接做干预。
-
-
-
-\---
-
-
-
-\## 7. 第一步：计算每个 head 在任务上的平均激活
-
-
-
-对于每个任务 $t$，每一层 $\\ell$，每个 head $j$，作者计算这个 head 在正常 ICL prompt 上的平均输出：
-
-
+对于每个任务 $t$，每一层 $\ell$，每个 head $j$，作者先在正常 ICL prompt 上计算这个 head 的平均输出：
 
 $$
-
-\\bar{a}\_{\\ell j}^{t}
-
+\bar{a}_{\ell j}^{t}
 ====================
 
-
-
-\\frac{1}{|P\_t|}
-
-\\sum\_{p\_i^t \\in P\_t}
-
-a\_{\\ell j}(p\_i^t)
-
+\frac{1}{|P_t|}
+\sum_{p_i^t \in P_t}
+a_{\ell j}(p_i^t)
 $$
-
-
 
 这里：
 
-
-
-\* $P\_t$ 是任务 $t$ 的正常 prompt 集合；
-
-\* $a\_{\\ell j}(p\_i^t)$ 是模型处理 prompt $p\_i^t$ 时，第 $\\ell$ 层第 $j$ 个 head 的输出；
-
-\* $\\bar{a}\_{\\ell j}^{t}$ 表示这个 head 在任务 $t$ 上的平均激活。
-
-
+* $P_t$ 是任务 $t$ 的正常 ICL prompt 集合；
+* $a_{\ell j}(p_i^t)$ 表示模型处理 prompt $p_i^t$ 时，第 $\ell$ 层第 $j$ 个 head 的输出；
+* $\bar{a}_{\ell j}^{t}$ 表示这个 head 在任务 $t$ 上的平均激活。
 
 直观理解：
 
+> 当模型在做任务 $t$ 时，这个 head 平均传递了什么信息？
 
+这一步是对所有 layer、所有 attention heads 分别做的。
 
-> 这个平均激活表示：当模型在做任务 $t$ 时，这个 head 通常传递什么信息。
+---
 
+## 8. 第二步：构造 shuffled-label prompt
 
+接下来，作者构造一种“坏 prompt”。
 
-这一步会对所有 layer、所有 attention heads 都做。
-
-
-
-\---
-
-
-
-\## 8. 第二步：构造 shuffled-label prompt
-
-
-
-为了判断某个 head 是否真的重要，作者构造一种“坏 prompt”。
-
-
-
-正常 prompt：
-
-
+正常 prompt 是：
 
 ```text
-
 hot:cold, big:small, happy:sad, fast:
-
 ```
 
-
-
-打乱标签后：
-
-
+打乱标签后变成：
 
 ```text
-
 hot:small, big:sad, happy:cold, fast:
-
 ```
 
-
-
-这时输入和输出之间没有稳定规律，模型很难判断任务是什么。
-
-
+这时输入和输出之间已经没有稳定规律，模型很难判断任务是什么。
 
 作者把这种 corrupted prompt 记为：
 
-
-
+$$
+\tilde{p}_i^t
 $$
 
-\\tilde{p}\_i^t
+为什么要这样做？
+
+因为如果 prompt 是正常的，模型本来就可能答对。
+但如果 prompt 被打乱，模型答对就困难了。
+
+这时如果我们补回某个 head 的正常任务激活，模型正确答案概率明显上升，就说明这个 head 对任务识别有因果作用。
+
+---
+
+## 9. 第三步：替换 head 激活并计算 CIE
+
+在模型处理 corrupted prompt 的时候，作者把某个 head 的输出替换成正常任务下的平均激活：
 
 $$
-
-
-
-这样做的好处是：
-
-
-
-> 如果在坏 prompt 中补回某个 head 的正常任务激活，模型正确答案概率上升，就说明这个 head 真的携带了任务信息。
-
-
-
-\---
-
-
-
-\## 9. 第三步：Activation Patching 和 CIE
-
-
-
-在模型处理 corrupted prompt 时，作者把某个 head 的激活替换成它在正常任务中的平均激活：
-
-
-
+a_{\ell j} := \bar{a}_{\ell j}^{t}
 $$
 
-a\_{\\ell j} := \\bar{a}\_{\\ell j}^{t}
+然后观察正确答案 $y_{iq}$ 的概率是否上升。
+
+作者定义 **CIE**，也就是 causal indirect effect：
 
 $$
-
-
-
-然后观察正确答案 $y\_{iq}$ 的概率变化。
-
-
-
-作者定义 \*\*CIE\*\*，即 causal indirect effect：
-
-
-
+\begin{aligned}
+CIE(a_{\ell j} \mid \tilde{p}_i^t)
+&=
+f(\tilde{p}_i^t \mid a_{\ell j} := \bar{a}_{\ell j}^{t})[y_{iq}]
+-
+f(\tilde{p}_i^t)[y_{iq}]
+\end{aligned}
 $$
 
-CIE(a\_{\\ell j} \\mid \\tilde{p}\_i^t)
-
-==================================
-
-
-
-\## f(\\tilde{p}\*i^t \\mid a\*{\\ell j}:=\\bar{a}\*{\\ell j}^{t})\[y\*{iq}]
-
-
-
-f(\\tilde{p}\*i^t)\[y\*{iq}]
-
-$$
-
-
-
-这个公式非常关键。
-
-
-
-它的意思是：
-
-
+这个公式可以直接理解为：
 
 ```text
-
-CIE = 替换某个 head 后，正确答案概率的提升量
-
+CIE = 替换某个 head 后，正确答案概率增加了多少
 ```
 
-
-
-如果 $CIE$ 很大，说明这个 head 对恢复正确答案很重要。
-
-
-
-所以可以这样讲：
-
-
-
-> 作者把每个 attention head 都单独“补回正确任务信息”试一遍，看哪个 head 最能让模型答对。
-
-
-
-\---
-
-
-
-\## 10. 第四步：计算 AIE，找通用关键 heads
-
-
-
-单个 CIE 只是在一个任务、一个 prompt 上的效果。
-
-
-
-作者想找的是对很多任务都重要的 heads，所以定义 \*\*AIE\*\*：
-
-
+第一项：
 
 $$
-
-AIE(a\_{\\ell j})
-
-===============
-
-
-
-\\frac{1}{|T|}
-
-\\sum\_{t \\in T}
-
-\\frac{1}{|\\tilde{P}\*t|}
-
-\\sum\*{\\tilde{p}\_i^t \\in \\tilde{P}\*t}
-
-CIE(a\*{\\ell j} \\mid \\tilde{p}\_i^t)
-
+f(\tilde{p}*i^t \mid a*{\ell j} := \bar{a}*{\ell j}^{t})[y*{iq}]
 $$
 
+表示在 corrupted prompt 上，把某个 head 换成正常任务激活后，模型给正确答案的概率。
 
+第二项：
 
-含义是：
+$$
+f(\tilde{p}*i^t)[y*{iq}]
+$$
 
+表示不做替换时，模型给正确答案的概率。
 
+两者相减，就是这个 head 的因果贡献。
+
+如果 $CIE$ 很大，说明这个 head 很重要。
+如果 $CIE$ 接近 0，说明替换它没有什么帮助。
+
+---
+
+## 10. 第四步：计算 AIE，找通用关键 heads
+
+单个 $CIE$ 只是在一个任务、一个 prompt 上的效果。
+
+作者想找的是对很多 ICL 任务都重要的 heads，所以进一步定义 **AIE**：
+
+$$
+\begin{aligned}
+AIE(a_{\ell j})
+&=
+\frac{1}{|T|}
+\sum_{t \in T}
+\frac{1}{|\tilde{P}_t|}
+\sum_{\tilde{p}_i^t \in \tilde{P}_t}
+CIE(a_{\ell j} \mid \tilde{p}_i^t)
+\end{aligned}
+$$
+
+这里：
+
+* $T$ 是任务集合；
+* $\tilde{P}_t$ 是任务 $t$ 的 corrupted prompt 集合；
+* $AIE(a_{\ell j})$ 表示这个 head 在多个任务、多个 corrupted prompts 上的平均因果作用。
+
+通俗地说：
 
 ```text
-
-对每个 head：
-
-&#x20;   在多个任务上算 CIE
-
-&#x20;   在多个 corrupted prompts 上算 CIE
-
-&#x20;   最后求平均
-
+对每个 attention head：
+    在很多任务上测试
+    在很多 corrupted prompts 上测试
+    看替换它之后正确答案概率平均提升多少
 ```
-
-
 
 $AIE$ 越高，说明这个 head 越像一个通用的“任务信息搬运 head”。
 
+---
 
+## 11. 图 3：关键 heads 在哪里？它们看什么？
 
-\---
-
-
-
-\## 11. 结合图 3：哪些 heads 最重要？
-
-
-
-论文图 3 展示了 GPT-J 中每个 attention head 的 AIE 分数。
-
-
+论文图 3 展示了 GPT-J 中每个 attention head 的 AIE。
 
 图 3(a) 是一个 heatmap：
 
+* 横轴是 layer；
+* 纵轴是 head index；
+* 颜色表示 AIE 大小；
+* 粉色框标出 AIE 最高的 top heads。
 
+作者发现：
 
-\* 横轴是 layer；
+> 高 AIE heads 主要集中在模型的早中层或中间层。
 
-\* 纵轴是 head index；
-
-\* 颜色越明显，说明 AIE 越高；
-
-\* 粉色框标出了 top 10 heads。
-
-
-
-作者发现这些高 AIE heads 主要集中在模型的早中层或中间层。
-
-
-
-图 3(b) 展示这些 heads 在看哪些 token。
-
-
+图 3(b) 展示这些 top heads 在 prompt 中关注哪些 token。
 
 结论是：
 
-
-
 > 这些 heads 主要关注 ICL 示例中的输出 token，也就是 label token。
-
-
 
 比如：
 
-
-
 ```text
-
 eggs:oeufs, sad:triste, sugar:sucre, read:
-
 ```
-
-
 
 关键 heads 会重点关注：
 
-
-
 ```text
-
 oeufs, triste, sucre
-
 ```
 
-
-
-这非常合理。因为要判断任务是什么，模型必须观察输入和输出之间的关系，而输出标签是最重要的线索。
-
-
+这非常合理。因为要判断任务是什么，模型必须观察输入和输出之间的关系，而输出标签是最直接的线索。
 
 可以形象地说：
 
+> 这些 attention heads 像是在认真看例题答案的学生。
+> 它们通过观察每个输入对应的输出，总结“这道题到底要我做什么”。
 
+---
 
-> 这些 heads 像是在课堂上认真看例题答案的学生，通过看输入对应的输出，总结老师在考什么任务。
+## 12. Function Vector 如何构造？
 
+找到高 AIE heads 后，把这些 heads 组成集合 $A$。
 
-
-\---
-
-
-
-\## 12. Function Vector 如何构造？
-
-
-
-找到高 AIE heads 后，把它们组成集合 $A$。
-
-
-
-对于任务 $t$，Function Vector 定义为：
-
-
+对于任务 $t$，作者把这些关键 heads 在任务 $t$ 上的平均输出加起来，得到 Function Vector：
 
 $$
-
-v\_t
-
+v_t
 ===
 
-
-
-\\sum\_{a\_{\\ell j} \\in A}
-
-\\bar{a}\_{\\ell j}^{t}
-
+\sum_{a_{\ell j} \in A}
+\bar{a}_{\ell j}^{t}
 $$
 
+这就是全文最核心的公式。
 
-
-也就是说：
-
-
+它的含义是：
 
 ```text
-
-FV = 关键 attention heads 在该任务上的平均输出之和
-
+Function Vector
+= 关键 attention heads 在该任务上的平均输出之和
 ```
 
+注意几个点：
 
+1. FV 不是每一层一个；
+2. FV 是一个任务向量；
+3. 它由少数高因果作用的 attention heads 构成；
+4. 它的维度和 hidden state 一样，所以可以直接加到模型内部表示上。
 
-注意：
+---
 
+## 13. 如何使用 Function Vector？
 
-
-\* FV 不是每一层一个；
-
-\* FV 是一个任务向量；
-
-\* 它由少数高因果作用的 attention heads 构成；
-
-\* 它的维度和 hidden state 一样，所以可以直接加到模型内部表示上。
-
-
-
-\---
-
-
-
-\## 13. 如何使用 Function Vector？
-
-
-
-得到 $v\_t$ 后，作者把它加到模型某一层 hidden state 上：
-
-
+得到 $v_t$ 后，作者把它加到模型某一层 hidden state 上：
 
 $$
-
-h\_{\\ell} \\leftarrow h\_{\\ell} + v\_t
-
+h_{\ell} \leftarrow h_{\ell} + v_t
 $$
 
+这样相当于在模型内部注入一个任务信号。
 
-
-然后看模型是否执行任务 $t$。
-
-
-
-比如，输入：
-
-
+比如我们得到 Antonym FV 后，只输入：
 
 ```text
-
 fast:
-
 ```
-
-
 
 本来模型不知道要做什么。
-
-
-
-如果在中间层加入 Antonym FV，模型就更可能输出：
-
-
+但如果在中间层加入 Antonym FV，模型就更可能输出：
 
 ```text
-
 slow
-
 ```
 
-
-
-所以 FV 的作用是：
-
-
+所以 FV 的作用不是直接给答案，而是告诉模型：
 
 ```text
-
-在模型内部注入一个任务信号
-
+现在请按照这个任务规则处理输入
 ```
 
+---
 
+## 14. 图 4：为什么说 FV 是任务触发器？
 
-\---
+图 4 展示的是：把同一个 FV 插入不同层，模型 zero-shot 执行任务的准确率如何变化。
 
+结果很关键：
 
+> 在早中层或中间层插入 FV 效果最好；在靠后的层插入，效果明显下降。
 
-\## 14. 结合图 4：为什么说 FV 是“任务触发器”？
+这说明 FV 不是简单的输出层 bias。
 
-
-
-图 4 展示了一个重要现象：
-
-
-
-> 把 FV 插入不同层，效果不一样。
-
-
-
-结果是：
-
-
-
-\* 在早中层或中间层插入效果最好；
-
-\* 在很靠后的层插入效果明显下降。
-
-
-
-这说明 FV 不是简单地直接修改最终输出概率。
-
-
-
-如果 FV 只是一个输出层 bias，那么越靠近最后一层应该越有效。
-
-但实验不是这样。
-
-
+如果 FV 只是直接提高某些答案 token 的概率，那么它越靠近输出层应该越有效。
+但实验发现不是这样。
 
 因此作者认为：
 
-
-
 > FV 更像是在中间层触发模型后续的非线性计算流程。
 
-
-
-可以这样解释：
-
-
+可以用一句话概括：
 
 ```text
-
-FV 不是把答案直接塞给模型
-
-而是在模型中间层按下“执行这个任务”的按钮
-
+FV 不是把答案塞进模型嘴里，
+而是在模型脑子中间按下“执行这个任务”的按钮。
 ```
 
+---
 
+## 15. 实验结果简略说明
 
-\---
+实验部分我简单讲，不展开太多。
 
+作者测试了多个模型：
 
-
-\## 15. 实验结果简略说明
-
-
-
-作者测试了多个模型，包括：
-
-
-
-\* GPT-J 6B；
-
-\* GPT-NeoX 20B；
-
-\* Llama 2 7B / 13B / 70B。
-
-
+* GPT-J 6B；
+* GPT-NeoX 20B；
+* Llama 2 7B、13B、70B。
 
 任务包括 40 多个，正文主要展示 6 个：
 
+* Antonym；
+* Capitalize；
+* Country-Capital；
+* English-French；
+* Present-Past；
+* Singular-Plural。
 
+核心实验场景有两个。
 
-\* Antonym；
+第一个是 **shuffled-label**：
+prompt 中有示例，但标签被打乱，模型本来很难识别任务。
 
-\* Capitalize；
+第二个是 **zero-shot**：
+没有任何示例，只给 query，然后插入 FV。
 
-\* Country-Capital；
-
-\* English-French；
-
-\* Present-Past；
-
-\* Singular-Plural。
-
-
-
-核心结果是：
-
-
-
-1\. 在 shuffled-label prompt 中，原本任务信息被破坏，加入 FV 后模型能恢复任务能力；
-
-2\. 在 zero-shot prompt 中，没有任何示例，加入 FV 后模型也能执行任务；
-
-3\. FV 对不同 prompt 模板和自然语言上下文也有一定迁移性。
-
-
-
-一个代表性结果是：
-
-
+表 2 的代表性结果是：
 
 | 模型          | Zero-shot baseline | 加 FV 后 |
-
 | ----------- | -----------------: | -----: |
-
 | GPT-J       |               5.5% |  57.5% |
-
 | GPT-NeoX    |               6.7% |  57.1% |
-
 | Llama 2 70B |               8.2% |  83.8% |
 
+这说明：
 
+> 即使没有任何 ICL 示例，只要插入 FV，模型也能在相当程度上执行对应任务。
 
-这个结果说明：
+作者还测试了不同 prompt 模板和自然语言上下文，发现 FV 仍然有迁移效果。
 
+---
 
+## 16. 这篇论文的核心贡献
 
-> Function Vector 确实能在没有示例的情况下触发模型执行对应任务。
+这篇论文的贡献可以总结成三点。
 
-
-
-\---
-
-
-
-\## 16. 这篇论文的核心贡献
-
-
-
-这篇论文最重要的贡献可以总结为三点。
-
-
-
-第一，提出 \*\*Function Vector\*\*：
-
-
+第一，提出了 **Function Vector** 这个概念：
 
 > LLM 内部存在表示任务或函数的紧凑向量。
 
-
-
-第二，提出提取方法：
-
-
+第二，提出了提取 FV 的方法：
 
 > 用 causal mediation analysis 找到少数关键 attention heads，再把它们的任务平均输出相加得到 FV。
 
-
-
 第三，证明 FV 有因果作用：
 
+> 把 FV 插入模型 hidden state，可以在 shuffled-label、zero-shot 和自然文本场景中触发对应任务。
 
+---
 
-> 把 FV 插入模型内部 hidden state，可以在 shuffled-label、zero-shot 和自然文本场景中触发对应任务。
+## 17. 局限性
 
+这篇论文也有一些局限。
 
+第一，任务相对简单。
+主要是词级或短语级任务，比如反义词、翻译、单复数、国家到首都等。复杂推理任务是否也有清晰 FV，还需要进一步研究。
 
-\---
+第二，FV 不是 ICL 的完整解释。
+它解释的是任务表示和任务触发的一部分机制，但还不能解释所有 ICL 行为。
 
+第三，部分实验是在模型本来可以通过 10-shot ICL 做对的样本上评估的。
+所以 FV 更像是在触发模型已有能力，而不是创造模型不会的新能力。
 
+---
 
-\## 17. 一句话总结
+## 18. 最后总结
 
+这篇论文可以用三句话总结：
 
+1. 大语言模型在做 ICL 时，内部会形成表示任务的 Function Vector。
+2. Function Vector 可以通过少数具有高因果作用的 attention heads 提取出来。
+3. 把 Function Vector 插入模型中，可以在 zero-shot、shuffled-label 和自然文本场景中触发模型执行对应任务。
 
-这篇论文说明：
+最后可以用一句形象的话收尾：
 
-
-
-> 大语言模型做 ICL 时，不只是表面上模仿 prompt，而是在内部形成了某种任务表示。这个表示可以被定位、提取，并作为 Function Vector 插入模型，从而触发模型执行对应函数。
-
-
-
-可以用一句更形象的话收尾：
-
-
-
-> Function Vector 就像模型内部的“函数调用指令”：从例子中提取出来，再插回模型，就能告诉模型“现在请执行这个任务”。
-
-
-
+> Function Vector 就像大语言模型内部的“函数调用指令”：
+> 从例子中提取出来，再插回模型，就能告诉模型“现在请执行这个任务”。
