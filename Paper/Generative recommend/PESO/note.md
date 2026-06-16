@@ -1,7 +1,5 @@
 # PESO 论文笔记：Continual Low-Rank Adapters for LLM-based Generative Recommender Systems
 
-> 组会汇报目标：让听众理解这篇论文为什么要做、方法怎么做、核心公式和图表说明什么、实验结果能证明什么。
-
 ---
 
 ## 1. 一句话总结
