@@ -117,7 +117,7 @@ complex
 
 $$
 h_{\ell}
-========
+=
 
 h_{\ell-1}
 +
@@ -149,7 +149,7 @@ $$
 
 $$
 p_i^t
-=====
+=
 
 [(x_{i1}, y_{i1}), \cdots, (x_{iN}, y_{iN}), x_{iq}]
 $$
@@ -194,7 +194,7 @@ hot:cold, big:small, happy:sad, fast:
 
 $$
 \bar{a}_{\ell j}^{t}
-====================
+=
 
 \frac{1}{|P_t|}
 \sum_{p_i^t \in P_t}
@@ -386,7 +386,7 @@ oeufs, triste, sucre
 
 $$
 v_t
-===
+=
 
 \sum_{a_{\ell j} \in A}
 \bar{a}_{\ell j}^{t}
